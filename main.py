@@ -6,6 +6,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from google import genai
 from google.genai import types
+from transcription import api_error, generate_transcription
 
 
 # ============================================================
@@ -21,6 +22,14 @@ GEMINI_MODEL = os.getenv(
     "gemini-3.8-flash",
 )
 
+GEMINI_TRANSCRIPTION_BACKEND = os.getenv("GEMINI_TRANSCRIPTION_BACKEND", "transcribe")
+GEMINI_TRANSCRIBE_MODEL = os.getenv("GEMINI_TRANSCRIBE_MODEL", "gemini-3.5-transcribe")
+GEMINI_TIMEOUT_SECONDS = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "45"))
+if GEMINI_TRANSCRIPTION_BACKEND not in {"transcribe", "generate_content"}:
+    raise RuntimeError("GEMINI_TRANSCRIPTION_BACKEND must be transcribe or generate_content")
+if not 0 < GEMINI_TIMEOUT_SECONDS <= 300:
+    raise RuntimeError("GEMINI_TIMEOUT_SECONDS must be between 0 and 300")
+
 if not GEMINI_API_KEY:
     raise RuntimeError(
         "GEMINI_API_KEY is not configured"
@@ -32,7 +41,12 @@ if not GEMINI_API_KEY:
 # ============================================================
 
 client = genai.Client(
-    api_key=GEMINI_API_KEY
+    api_key=GEMINI_API_KEY,
+    http_options=types.HttpOptions(
+        api_version="v1beta",
+        timeout=int(GEMINI_TIMEOUT_SECONDS * 1000),
+        retry_options=types.HttpRetryOptions(attempts=1),
+    ),
 )
 
 
@@ -233,6 +247,8 @@ async def health():
         "version": "0.3.0",
         "provider": "gemini",
         "model": GEMINI_MODEL,
+        "transcription_backend": GEMINI_TRANSCRIPTION_BACKEND,
+        "transcribe_model": GEMINI_TRANSCRIBE_MODEL,
         "cache_entries": len(
             transcription_cache
         ),
@@ -251,7 +267,7 @@ async def transcribe(
     # Read upload
     # --------------------------------------------------------
 
-    media = await file.read()
+    media = await file.read(30 * 1024 * 1024 + 1)
 
 
     if not media:
@@ -408,8 +424,11 @@ async def transcribe(
     print(
         "[q] sending to Gemini",
         {
-            "model":
-                GEMINI_MODEL,
+            "model": (
+                GEMINI_TRANSCRIBE_MODEL
+                if GEMINI_TRANSCRIPTION_BACKEND == "transcribe" and mime_type.startswith("audio/")
+                else GEMINI_MODEL
+            ),
 
             "mime_type":
                 mime_type,
@@ -429,40 +448,23 @@ async def transcribe(
     # --------------------------------------------------------
 
     try:
-        response = (
-            client.models.generate_content(
-                model=GEMINI_MODEL,
-
-                contents=[
-                    types.Part.from_bytes(
-                        data=media,
-                        mime_type=mime_type,
-                    ),
-
-                    prompt,
-                ],
-            )
+        response = await generate_transcription(
+            client,
+            media=media,
+            mime_type=mime_type,
+            prompt=prompt,
+            backend=GEMINI_TRANSCRIPTION_BACKEND,
+            model=GEMINI_MODEL,
+            transcribe_model=GEMINI_TRANSCRIBE_MODEL,
+            timeout=GEMINI_TIMEOUT_SECONDS,
         )
-
-
     except Exception as exc:
-        print(
-            "[q] Gemini exception:",
-            repr(exc),
-            flush=True,
-        )
-
-
+        status, code, message = api_error(exc)
+        # Provider exception strings may contain request URLs or credentials.
+        print("[q] Gemini request failed", {"code": code}, flush=True)
         raise HTTPException(
-            status_code=502,
-            detail={
-                "code":
-                    "gemini_error",
-
-                "message":
-                    "Gemini request failed",
-            },
-        ) from exc
+            status_code=status, detail={"code": code, "message": message}
+        ) from None
 
 
     # --------------------------------------------------------
@@ -500,13 +502,6 @@ async def transcribe(
         print(
             "[q] block reason:",
             block_reason,
-            flush=True,
-        )
-
-
-        print(
-            "[q] full response:",
-            response,
             flush=True,
         )
 

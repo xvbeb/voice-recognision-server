@@ -2,4 +2,5 @@ fastapi
 uvicorn[standard]
 python-multipart
 python-dotenv
-google-genai
+google-genai==3.2.0
+httpx==0.28.1
