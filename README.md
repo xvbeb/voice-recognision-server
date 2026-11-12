@@ -117,3 +117,66 @@ After approved deployment, test one explicitly permitted short voice clip in
 Gemspace, then repeat it to check caching; test one permitted CircleVideo.
 Check language preservation and readable errors. Use `/health` to confirm
 configuration, without treating it as a transcription test.
+
+## Публичная установка q
+
+- `GET /install` — HTML с двумя перетаскиваемыми javascript:-закладками:
+  «🎤 q — автономная» (основная) и «🎤 q — автообновление».
+- `GET /q-runtime.js` — сгенерированный runtime. Загрузчик использует
+  `https://voice-recognision-server-production.up.railway.app/q-runtime.js`.
+
+Файлы `public/install.html` и `public/q-runtime.js` создаются командой
+`npm --prefix bookmarklet run build` из корня общего проекта. Они включаются
+в backend-репозиторий, поэтому Railway не нужны Node.js, test.txt или каталог
+bookmarklet. Не редактируйте сгенерированные файлы вручную.
+
+Отдаются только два фиксированных пути; StaticFiles на весь проект не монтируется.
+Ответы имеют `Cache-Control: no-cache, max-age=0, must-revalidate`, `nosniff`,
+`Referrer-Policy: no-referrer`. CSP документов запрещает скрипты, фреймы и формы,
+разрешая только встроенные стили страницы установки. Она не переносится на
+Gemspace при запуске сохранённой закладки. На /install кнопку надо перетащить,
+а не выполнять её на самой странице установки.
+Существующий CORS разрешает origin https://web.gemspace.com, без credentials.
+Внешний classic script не требует CORS, но подчиняется CSP Gemspace.
+Корпоративные политики могут запретить сам bookmarklet: тогда он не сможет
+показать диагностику. При запущенном загрузчике сеть/CSP/тайм-аут показываются
+сообщением, предлагающим автономный вариант. Универсальный обход не реализован.
+
+Локальная проверка (из backend, без реальных обращений к Gemini):
+
+```sh
+GEMINI_API_KEY=local-test-not-a-real-key python -m uvicorn main:app --host 127.0.0.1 --port 8766
+# В другом терминале:
+curl -i http://127.0.0.1:8766/install
+curl -sS -D - -o /dev/null http://127.0.0.1:8766/q-runtime.js
+```
+
+Маршруты зарегистрированы для GET; для проверки заголовков runtime используйте
+`curl -sS -D - -o /dev/null http://127.0.0.1:8766/q-runtime.js` (HEAD не добавлялся).
+
+### Публикация — только после подтверждения
+
+```sh
+cd /Users/admin/Documents/dev/voice-gs
+npm --prefix bookmarklet ci
+npm --prefix bookmarklet run build
+npm --prefix bookmarklet test
+cd backend
+python -m unittest discover -s tests -v
+railway login
+railway link
+railway status
+# Выбрать/проверить СУЩЕСТВУЮЩИЕ project, service и production environment.
+railway up
+```
+
+`railway up` загружает и разворачивает код; это не команда предварительной проверки.
+Запускайте из backend, не из общего каталога с расширением. Переменные Gemini
+и стартовую команду работающего сервиса менять для этих маршрутов не нужно.
+При публикации через Git включите main.py, bookmarklet_routes.py, public/ и тесты
+в backend-репозиторий; push может запускать автоматический деплой.
+Никакой push или deploy при локальной подготовке не выполнялся.
+
+После публикации проверить /install, /q-runtime.js и /health; затем перетащить
+обе закладки в Chrome, открыть Gemspace и по очереди проверить их на свежей
+странице. Для транскрибации использовать только разрешённое тестовое медиа.

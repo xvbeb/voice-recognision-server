@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from google import genai
 from google.genai import types
 from transcription import api_error, generate_transcription
+from bookmarklet_routes import router as bookmarklet_router
 
 
 # ============================================================
@@ -63,6 +64,8 @@ app = FastAPI(
     version="0.3.0",
 )
 
+
+app.include_router(bookmarklet_router)
 
 # ============================================================
 # CORS
