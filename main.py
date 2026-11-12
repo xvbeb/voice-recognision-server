@@ -2,12 +2,14 @@ import hashlib
 import os
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
 from google import genai
 from google.genai import types
 from transcription import api_error, generate_transcription
 from bookmarklet_routes import router as bookmarklet_router
+from admin_routes import router as admin_router
+from stats_middleware import TranscriptionEvents
 
 
 # ============================================================
@@ -66,6 +68,8 @@ app = FastAPI(
 
 
 app.include_router(bookmarklet_router)
+app.include_router(admin_router)
+app.add_middleware(TranscriptionEvents)
 
 # ============================================================
 # CORS
@@ -264,6 +268,7 @@ async def health():
 
 @app.post("/transcribe")
 async def transcribe(
+    request: Request,
     file: UploadFile = File(...),
 ):
     # --------------------------------------------------------
@@ -325,6 +330,8 @@ async def transcribe(
         "video/mp4",
     }
 
+
+    request.state.q_media_type = ('circle' if mime_type == 'video/mp4' else 'voice' if mime_type in allowed_types else 'unknown')
 
     if mime_type not in allowed_types:
         raise HTTPException(
