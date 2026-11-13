@@ -181,13 +181,19 @@
       font-weight: 400;
       line-height: 1.4;
 
-      color: #ffffff;
+      --q-transcript-fallback: #1f1f21;
+      color: var(--incoming-bubble-text-primary, var(--base-110, var(--q-transcript-fallback)));
 
       white-space: pre-wrap;
       overflow-wrap: anywhere;
 
       cursor: text;
       user-select: text;
+    }
+
+
+    :root[data-theme="dark"] .q-transcript {
+      --q-transcript-fallback: #fcfcfc;
     }
 
 
